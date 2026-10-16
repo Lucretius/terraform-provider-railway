@@ -1,0 +1,12 @@
+# @genqlient(for: "Region.id", pointer: true)
+query getRegions(
+  # @genqlient(omitempty: true, pointer: true)
+  $projectId: String
+) {
+  regions(projectId: $projectId) {
+    id
+    name
+    country
+    location
+  }
+}

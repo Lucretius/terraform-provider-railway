@@ -104,11 +104,21 @@ func (p *RailwayProvider) Resources(ctx context.Context) []func() resource.Resou
 		NewCustomDomainResource,
 		NewServiceDomainResource,
 		NewTcpProxyResource,
+		NewAccessGroupResource,
+		NewAccessGroupMemberResource,
+		NewAccessGroupProjectResource,
+		NewServiceEdgeRulesResource,
+		NewServiceDeployResource,
 	}
 }
 
 func (p *RailwayProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		NewEnvironmentDataSource,
+		NewProjectDataSource,
+		NewServiceDataSource,
+		NewRegionsDataSource,
+	}
 }
 
 func New(version string) func() provider.Provider {

@@ -1,0 +1,12 @@
+mutation deployServiceInstance(
+  $environmentId: String!
+  # @genqlient(omitempty: true, pointer: true)
+  $commitSha: String
+  $serviceId: String!
+) {
+  serviceInstanceDeployV2(
+    environmentId: $environmentId
+    commitSha: $commitSha
+    serviceId: $serviceId
+  )
+}

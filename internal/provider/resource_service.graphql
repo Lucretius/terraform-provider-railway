@@ -60,21 +60,6 @@ query getServiceInstance(
   }
 }
 
-query getServiceInstances(
-  $serviceId: String!
-) {
-  service(id: $serviceId) {
-    serviceInstances {
-      edges {
-        node {
-          id
-          environmentId
-        }
-      }
-    }
-  }
-}
-
 # @genqlient(for: "ServiceInstanceUpdateInput.rootDirectory", omitempty: true, pointer: true)
 # @genqlient(for: "ServiceInstanceUpdateInput.railwayConfigFile", omitempty: true, pointer: true)
 # @genqlient(for: "ServiceInstanceUpdateInput.cronSchedule", pointer: true)
@@ -99,11 +84,13 @@ query getServiceInstances(
 # @genqlient(for: "ServiceInstanceUpdateInput.overlapSeconds", omitempty: true, pointer: true)
 # @genqlient(for: "ServiceInstanceUpdateInput.ipv6EgressEnabled", omitempty: true, pointer: true)
 mutation updateServiceInstance(
+  # @genqlient(omitempty: true, pointer: true)
+  $environmentId: String
   $serviceId: String!
   $input: ServiceInstanceUpdateInput!
 ) {
   serviceInstanceUpdate(
-    environmentId: null
+    environmentId: $environmentId
     input: $input
     serviceId: $serviceId
   )

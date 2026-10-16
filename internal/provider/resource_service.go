@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -70,7 +71,19 @@ type ServiceResourceModel struct {
 	Id                                 types.String `tfsdk:"id"`
 	Name                               types.String `tfsdk:"name"`
 	ProjectId                          types.String `tfsdk:"project_id"`
-	CronSchedule                       types.String `tfsdk:"cron_schedule"`
+	EnvironmentId                      types.String `tfsdk:"environment_id"`
+	BuildCommand                       types.String `tfsdk:"build_command"`
+	StartCommand                       types.String `tfsdk:"start_command"`
+	Builder                            types.String `tfsdk:"builder"`
+	DockerfilePath                     types.String `tfsdk:"dockerfile_path"`
+	HealthcheckPath                    types.String `tfsdk:"healthcheck_path"`
+	HealthcheckTimeout                 types.Int64  `tfsdk:"healthcheck_timeout"`
+	RestartPolicyType                  types.String `tfsdk:"restart_policy_type"`
+	RestartPolicyMaxRetries            types.Int64  `tfsdk:"restart_policy_max_retries"`
+	WatchPatterns                      types.List   `tfsdk:"watch_patterns"`
+	PreDeployCommand                   types.List   `tfsdk:"pre_deploy_command"`
+	SleepApplication                   types.Bool   `tfsdk:"sleep_application"`
+	CronSchedule                      types.String `tfsdk:"cron_schedule"`
 	SourceImage                        types.String `tfsdk:"source_image"`
 	SourceImagePrivateRegistryUsername types.String `tfsdk:"source_image_registry_username"`
 	SourceImagePrivateRegistryPassword types.String `tfsdk:"source_image_registry_password"`
@@ -114,7 +127,72 @@ func (r *ServiceResource) Schema(ctx context.Context, req resource.SchemaRequest
 					stringvalidator.RegexMatches(uuidRegex(), "must be an id"),
 				},
 			},
-			"cron_schedule": schema.StringAttribute{
+			"environment_id": schema.StringAttribute{
+					MarkdownDescription: "Identifier of the environment the instance settings (`cron_schedule`, `root_directory`, `config_path`, `regions`, `build_command`, etc.) apply to. When set, only this environment's instance is updated and redeployed. When unset, settings are applied to all environments and read from the project's default environment. Settings previously applied to another environment are not reverted when this changes.",
+					Optional:            true,
+					Validators: []validator.String{
+						stringvalidator.RegexMatches(uuidRegex(), "must be an id"),
+					},
+				},
+				"build_command": schema.StringAttribute{
+					MarkdownDescription: "Build command of the service.",
+					Optional:            true,
+				},
+				"start_command": schema.StringAttribute{
+					MarkdownDescription: "Start command of the service.",
+					Optional:            true,
+				},
+				"builder": schema.StringAttribute{
+					MarkdownDescription: "Builder of the service. One of `NIXPACKS`, `HEROKU`, `PAKETO`, `RAILPACK`.",
+					Optional:            true,
+					Validators: []validator.String{
+						stringvalidator.OneOf(string(BuilderNixpacks), string(BuilderHeroku), string(BuilderPaketo), string(BuilderRailpack)),
+					},
+				},
+				"dockerfile_path": schema.StringAttribute{
+					MarkdownDescription: "Path to the Dockerfile.",
+					Optional:            true,
+				},
+				"healthcheck_path": schema.StringAttribute{
+					MarkdownDescription: "Healthcheck path of the service.",
+					Optional:            true,
+				},
+				"healthcheck_timeout": schema.Int64Attribute{
+					MarkdownDescription: "Healthcheck timeout in seconds.",
+					Optional:            true,
+					Validators: []validator.Int64{
+						int64validator.AtLeast(1),
+					},
+				},
+				"restart_policy_type": schema.StringAttribute{
+					MarkdownDescription: "Restart policy of the service. One of `ALWAYS`, `NEVER`, `ON_FAILURE`.",
+					Optional:            true,
+					Validators: []validator.String{
+						stringvalidator.OneOf(string(RestartPolicyTypeAlways), string(RestartPolicyTypeNever), string(RestartPolicyTypeOnFailure)),
+					},
+				},
+				"restart_policy_max_retries": schema.Int64Attribute{
+					MarkdownDescription: "Maximum restart retries when `restart_policy_type` is `ON_FAILURE`.",
+					Optional:            true,
+					Validators: []validator.Int64{
+						int64validator.AtLeast(0),
+					},
+				},
+				"watch_patterns": schema.ListAttribute{
+					MarkdownDescription: "Watch patterns that trigger deployments.",
+					Optional:            true,
+					ElementType:         types.StringType,
+				},
+				"pre_deploy_command": schema.ListAttribute{
+					MarkdownDescription: "Pre-deploy command, as a list of arguments.",
+					Optional:            true,
+					ElementType:         types.StringType,
+				},
+				"sleep_application": schema.BoolAttribute{
+					MarkdownDescription: "Whether the service sleeps when inactive.",
+					Optional:            true,
+				},
+				"cron_schedule": schema.StringAttribute{
 				MarkdownDescription: "Cron schedule of the service. Only allowed when total number of replicas across all regions is `1`.",
 				Optional:            true,
 				Validators: []validator.String{
@@ -361,9 +439,14 @@ func (r *ServiceResource) Create(ctx context.Context, req resource.CreateRequest
 	data.Name = types.StringValue(service.Name)
 	data.ProjectId = types.StringValue(service.ProjectId)
 
-	instanceInput := buildServiceInstanceInput(data, regionsData)
+	instanceInput, diags := buildServiceInstanceInput(ctx, data, regionsData)
+	resp.Diagnostics.Append(diags...)
 
-	_, err = updateServiceInstance(ctx, *r.client, data.Id.ValueString(), instanceInput)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	_, err = updateServiceInstance(ctx, *r.client, data.EnvironmentId.ValueStringPointer(), data.Id.ValueString(), instanceInput)
 
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create service settings, got error: %s", err))
@@ -486,6 +569,7 @@ func (r *ServiceResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
+	resp.Diagnostics.Append(data.Regions.ElementsAs(ctx, &regionsData, true)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 
 	if resp.Diagnostics.HasError() {
@@ -513,9 +597,14 @@ func (r *ServiceResource) Update(ctx context.Context, req resource.UpdateRequest
 		data.ProjectId = types.StringValue(service.ProjectId)
 	}
 
-	instanceInput := buildServiceInstanceInput(data, regionsData)
+	instanceInput, diags := buildServiceInstanceInput(ctx, data, regionsData)
+	resp.Diagnostics.Append(diags...)
 
-	_, err := updateServiceInstance(ctx, *r.client, data.Id.ValueString(), instanceInput)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	_, err := updateServiceInstance(ctx, *r.client, data.EnvironmentId.ValueStringPointer(), data.Id.ValueString(), instanceInput)
 
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service settings, got error: %s", err))
@@ -624,13 +713,6 @@ func (r *ServiceResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service repo or image connection, got error: %s", err))
 	}
 
-	err = redeployAllInstances(ctx, *r.client, data.Id.ValueString())
-
-	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to redeploy services after update, got error: %s", err))
-		return
-	}
-
 	err = getAndBuildServiceInstance(ctx, *r.client, data.ProjectId.ValueString(), data.Id.ValueString(), data)
 
 	if err != nil {
@@ -689,8 +771,47 @@ func (r *ServiceResource) ImportState(ctx context.Context, req resource.ImportSt
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func buildServiceInstanceInput(data *ServiceResourceModel, regionsData *[]ServiceResourceRegionModel) ServiceInstanceUpdateInput {
+func buildServiceInstanceInput(ctx context.Context, data *ServiceResourceModel, regionsData *[]ServiceResourceRegionModel) (ServiceInstanceUpdateInput, diag.Diagnostics) {
 	var instanceInput ServiceInstanceUpdateInput
+	var diags diag.Diagnostics
+
+	instanceInput.BuildCommand = data.BuildCommand.ValueStringPointer()
+	instanceInput.StartCommand = data.StartCommand.ValueStringPointer()
+	instanceInput.DockerfilePath = data.DockerfilePath.ValueStringPointer()
+	instanceInput.HealthcheckPath = data.HealthcheckPath.ValueStringPointer()
+	instanceInput.SleepApplication = data.SleepApplication.ValueBoolPointer()
+
+	if !data.Builder.IsNull() {
+		builder := Builder(data.Builder.ValueString())
+		instanceInput.Builder = &builder
+	}
+
+	if !data.RestartPolicyType.IsNull() {
+		restartPolicyType := RestartPolicyType(data.RestartPolicyType.ValueString())
+		instanceInput.RestartPolicyType = &restartPolicyType
+	}
+
+	if !data.HealthcheckTimeout.IsNull() {
+		timeout := int(data.HealthcheckTimeout.ValueInt64())
+		instanceInput.HealthcheckTimeout = &timeout
+	}
+
+	if !data.RestartPolicyMaxRetries.IsNull() {
+		retries := int(data.RestartPolicyMaxRetries.ValueInt64())
+		instanceInput.RestartPolicyMaxRetries = &retries
+	}
+
+	if !data.WatchPatterns.IsNull() {
+		var patterns []string
+		diags.Append(data.WatchPatterns.ElementsAs(ctx, &patterns, false)...)
+		instanceInput.WatchPatterns = &patterns
+	}
+
+	if !data.PreDeployCommand.IsNull() {
+		var command []string
+		diags.Append(data.PreDeployCommand.ElementsAs(ctx, &command, false)...)
+		instanceInput.PreDeployCommand = &command
+	}
 
 	if !data.CronSchedule.IsNull() {
 		instanceInput.CronSchedule = data.CronSchedule.ValueStringPointer()
@@ -730,18 +851,33 @@ func buildServiceInstanceInput(data *ServiceResourceModel, regionsData *[]Servic
 		instanceInput.RegistryCredentials.Password = data.SourceImagePrivateRegistryPassword.ValueString()
 	}
 
-	return instanceInput
+	return instanceInput, diags
+}
+
+// resolveEnvironmentId returns the configured environment, or the project's default one.
+func resolveEnvironmentId(ctx context.Context, client graphql.Client, projectId string, environmentId types.String) (string, error) {
+	if !environmentId.IsNull() && !environmentId.IsUnknown() {
+		return environmentId.ValueString(), nil
+	}
+
+	_, environment, err := defaultEnvironmentForProject(ctx, client, projectId)
+
+	if err != nil {
+		return "", err
+	}
+
+	return environment.Id, nil
 }
 
 func getAndBuildServiceInstance(ctx context.Context, client graphql.Client, projectId string, serviceId string, data *ServiceResourceModel) error {
 	// Read the service again to get the updated source attributes
-	_, environment, err := defaultEnvironmentForProject(ctx, client, projectId)
+	environmentId, err := resolveEnvironmentId(ctx, client, projectId, data.EnvironmentId)
 
 	if err != nil {
 		return err
 	}
 
-	response, err := getServiceInstance(ctx, client, environment.Id, serviceId)
+	response, err := getServiceInstance(ctx, client, environmentId, serviceId)
 
 	if err != nil {
 		return err
@@ -767,7 +903,7 @@ func getAndBuildServiceInstance(ctx context.Context, client graphql.Client, proj
 		if response.ServiceInstance.Source.Repo != nil {
 			data.SourceRepo = types.StringValue(*response.ServiceInstance.Source.Repo)
 
-			triggersResponse, err := listDeploymentTriggers(ctx, client, projectId, environment.Id, serviceId)
+			triggersResponse, err := listDeploymentTriggers(ctx, client, projectId, environmentId, serviceId)
 
 			if err != nil {
 				return err
@@ -847,7 +983,7 @@ func getAndBuildVolumeInstance(ctx context.Context, client graphql.Client, proje
 	data.Volume = types.ObjectNull(volumeAttrTypes)
 
 	// Read the service again to get the updated source attributes
-	_, environment, err := defaultEnvironmentForProject(ctx, client, projectId)
+	environmentId, err := resolveEnvironmentId(ctx, client, projectId, data.EnvironmentId)
 
 	if err != nil {
 		return err
@@ -861,7 +997,7 @@ func getAndBuildVolumeInstance(ctx context.Context, client graphql.Client, proje
 
 	for _, volume := range response.Project.Volumes.Edges {
 		for _, volumeInstance := range volume.Node.VolumeInstances.Edges {
-			if volumeInstance.Node.ServiceId == serviceId && volumeInstance.Node.EnvironmentId == environment.Id {
+			if volumeInstance.Node.ServiceId == serviceId && volumeInstance.Node.EnvironmentId == environmentId {
 				data.Volume = types.ObjectValueMust(
 					volumeAttrTypes,
 					map[string]attr.Value{
@@ -913,24 +1049,4 @@ func buildServiceConnectInput(data *ServiceResourceModel) ServiceConnectInput {
 	}
 
 	return ServiceConnectInput{}
-}
-
-func redeployAllInstances(ctx context.Context, client graphql.Client, serviceId string) error {
-	instances, err := getServiceInstances(ctx, client, serviceId)
-
-	if err != nil {
-		return err
-	}
-
-	for _, instance := range instances.Service.ServiceInstances.Edges {
-		_, err := redeployServiceInstance(ctx, client, instance.Node.EnvironmentId, serviceId)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	tflog.Trace(ctx, "redeployed all service instances")
-
-	return nil
 }

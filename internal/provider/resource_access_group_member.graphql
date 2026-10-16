@@ -1,0 +1,15 @@
+fragment AccessGroupMember on AccessGroupMember {
+  id
+  accessGroupId
+  userId
+}
+
+mutation addAccessGroupMember($input: AccessGroupMemberInput!) {
+  accessGroupMemberAdd(input: $input) {
+    ...AccessGroupMember
+  }
+}
+
+mutation removeAccessGroupMember($input: AccessGroupMemberInput!) {
+  accessGroupMemberRemove(input: $input)
+}

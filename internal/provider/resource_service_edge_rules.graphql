@@ -1,0 +1,29 @@
+query getServiceEdgeRules(
+  $environmentId: String!
+  $serviceId: String!
+) {
+  serviceInstance(environmentId: $environmentId, serviceId: $serviceId) {
+    edgeConfig {
+      # @genqlient(bind: "encoding/json.RawMessage")
+      edgeRules
+    }
+  }
+}
+
+mutation updateServiceEdgeRules(
+  $environmentId: String!
+  $serviceId: String!
+  # @genqlient(bind: "encoding/json.RawMessage")
+  $edgeRules: JSON
+) {
+  updateServiceEdgeRules(
+    input: {
+      environmentId: $environmentId
+      serviceId: $serviceId
+      edgeRules: $edgeRules
+    }
+  ) {
+    # @genqlient(bind: "encoding/json.RawMessage")
+    edgeRules
+  }
+}

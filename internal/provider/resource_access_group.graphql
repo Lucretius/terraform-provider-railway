@@ -1,0 +1,58 @@
+fragment AccessGroup on AccessGroup {
+  id
+  name
+  role
+  workspaceId
+}
+
+query getAccessGroups(
+  $workspaceId: String!
+  # @genqlient(pointer: true)
+  $after: String
+) {
+  workspace(workspaceId: $workspaceId) {
+    accessGroups(first: 100, after: $after) {
+      edges {
+        node {
+          ...AccessGroup
+          members(first: 100) {
+            edges {
+              node {
+                id
+                userId
+              }
+            }
+          }
+          projects(first: 100) {
+            edges {
+              node {
+                id
+                projectId
+              }
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}
+
+mutation createAccessGroup($input: AccessGroupCreateInput!) {
+  accessGroupCreate(input: $input) {
+    ...AccessGroup
+  }
+}
+
+mutation updateAccessGroup($id: String!, $input: AccessGroupUpdateInput!) {
+  accessGroupUpdate(id: $id, input: $input) {
+    ...AccessGroup
+  }
+}
+
+mutation deleteAccessGroup($id: String!) {
+  accessGroupDelete(id: $id)
+}

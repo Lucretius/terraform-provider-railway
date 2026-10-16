@@ -1,0 +1,15 @@
+fragment AccessGroupProject on AccessGroupProject {
+  id
+  accessGroupId
+  projectId
+}
+
+mutation attachAccessGroupProject($input: AccessGroupProjectInput!) {
+  accessGroupProjectAttach(input: $input) {
+    ...AccessGroupProject
+  }
+}
+
+mutation detachAccessGroupProject($input: AccessGroupProjectInput!) {
+  accessGroupProjectDetach(input: $input)
+}

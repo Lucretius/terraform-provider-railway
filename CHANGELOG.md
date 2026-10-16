@@ -1,3 +1,19 @@
+## Unreleased
+
+### Enhancements
+* Add `railway_access_group`, `railway_access_group_member` and `railway_access_group_project` resources
+* Add `railway_service_edge_rules` resource
+* Add optional `environment_id` to `railway_service` to scope instance settings and redeploys to one environment
+* Add `build_command`, `start_command`, `builder`, `dockerfile_path`, `healthcheck_path`, `healthcheck_timeout`, `restart_policy_type`, `restart_policy_max_retries`, `watch_patterns`, `pre_deploy_command` and `sleep_application` to `railway_service`
+* Add `railway_environment`, `railway_project`, `railway_service` and `railway_regions` data sources
+* Add `railway_service_deploy` resource to deploy a service instance, optionally again when `triggers` change
+
+### Breaking Changes
+* `railway_service` no longer redeploys its instances on update, use `railway_service_deploy` with `triggers` instead
+
+### Bug Fixes
+* Apply `regions` on `railway_service` update
+
 ## 0.6.2
 
 ### Enhancements
